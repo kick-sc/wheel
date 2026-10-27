@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Колесо подарков</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root{--bg:#121118;--accent:#7b2fe0;--muted:#8d8a99}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:#fff;font-family:system-ui,-apple-system,Roboto,sans-serif;
+       min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:24px 16px;text-align:center}
+  h1{font-size:34px;font-style:italic;font-weight:900;margin-top:12px}
+  .sub{color:var(--muted);margin:6px 0 20px;font-size:17px}
+  .wrap{position:relative;width:min(92vw,420px);aspect-ratio:1}
+  canvas{width:100%;height:100%;display:block}
+  .pointer{position:absolute;right:-6px;top:50%;transform:translateY(-50%);width:0;height:0;
+           border-top:16px solid transparent;border-bottom:16px solid transparent;border-right:34px solid #a46bff}
+  .center{position:absolute;left:50%;top:50%;width:18%;height:18%;transform:translate(-50%,-50%);
+          border-radius:50%;background:radial-gradient(circle at 35% 30%,#c9a2ff,#6a25cc);border:3px solid #e8d6ff}
+  .timer{color:var(--muted);margin:24px 0 12px}
+  .timer b{color:#fff}
+  button{width:100%;max-width:420px;border:0;border-radius:16px;padding:18px;font-size:20px;
+         font-weight:700;color:#fff;background:var(--accent)}
+  button:disabled{opacity:.5}
+  #result{margin-top:16px;font-size:22px;min-height:30px}
+  #claim{display:none;margin-top:12px;background:#2f9e5b}
+</style>
+</head>
+<body>
+<h1>КРУТИ КОЛЕСО</h1>
+<div class="sub">И выигрывай подарки бесплатно</div>
+
+<div class="wrap">
+  <canvas id="c" width="840" height="840"></canvas>
+  <div class="center"></div><div class="pointer"></div>
+</div>
+
+<div class="timer" id="timer"></div>
+<button id="spin">Крутить</button>
+<div id="result"></div>
+<button id="claim">Забрать приз</button>
+
+<script>
+const tg = window.Telegram?.WebApp; tg?.ready(); tg?.expand();
+
+// Призы: t — название, e — эмодзи, w — вес (шанс), c — цвет сектора
+const PRIZES = [
+  {t:'NFT-гифт', e:'💎', w:1,  c:'#c9b8ff'},
+  {t:'Лапка',    e:'🐾', w:12, c:'#ececf2'},
+  {t:'Пусто',    e:'—',  w:25, c:'#dcd9e8'},
+  {t:'Торт',     e:'🎂', w:8,  c:'#ececf2'},
+  {t:'Пусто',    e:'—',  w:25, c:'#dcd9e8'},
+  {t:'Мишка',    e:'🧸', w:10, c:'#ececf2'},
+  {t:'Premium',  e:'⭐', w:3,  c:'#a58bf2'},
+  {t:'Лапка',    e:'🐾', w:12, c:'#ececf2'},
+  {t:'Пусто',    e:'—',  w:25, c:'#dcd9e8'},
+  {t:'Подарок',  e:'🎁', w:8,  c:'#ececf2'},
+  {t:'Шампанское',e:'🍾',w:5,  c:'#ececf2'},
+];
+const N = PRIZES.length, ARC = 2*Math.PI/N;
+const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+let angle = 0, spinning = false, won = null;
+
+function draw(){
+  const s = cv.width, r = s/2;
+  ctx.clearRect(0,0,s,s);
+  ctx.save(); ctx.translate(r,r);
+  const g = ctx.createLinearGradient(-r,-r,r,r); g.addColorStop(0,'#f0d9ff'); g.addColorStop(1,'#8f6bff');
+  ctx.beginPath(); ctx.arc(0,0,r-4,0,7); ctx.fillStyle=g; ctx.fill();
+  ctx.rotate(angle);
+  PRIZES.forEach((p,i)=>{
+    ctx.beginPath(); ctx.moveTo(0,0); ctx.arc(0,0,r-50,i*ARC,(i+1)*ARC); ctx.closePath();
+    ctx.fillStyle=p.c; ctx.fill(); ctx.strokeStyle='#fff8'; ctx.lineWidth=2; ctx.stroke();
+    ctx.save(); ctx.rotate(i*ARC+ARC/2); ctx.textAlign='right'; ctx.textBaseline='middle';
+    ctx.fillStyle = p.t==='Premium'||p.t==='NFT-гифт' ? '#fff' : '#222';
+    if(p.e==='—'){ ctx.font='bold 38px system-ui'; ctx.fillText('Пусто!', r-90, 0); }
+    else { ctx.font='64px system-ui'; ctx.fillText(p.e, r-90, 0); }
+    ctx.restore();
+  });
+  ctx.restore();
+}
+
+// выбор приза с учётом весов
+function pick(){
+  const sum = PRIZES.reduce((a,p)=>a+p.w,0); let x = Math.random()*sum;
+  for(let i=0;i<N;i++){ if((x-=PRIZES[i].w)<0) return i; } return 0;
+}
+
+// кулдаун 24ч (в localStorage; для честной защиты нужен сервер)
+const KEY='lastSpin', COOLDOWN=24*3600*1000;
+const left = ()=> Math.max(0, COOLDOWN-(Date.now()-(+localStorage.getItem(KEY)||0)));
+function tick(){
+  const l=left(), b=document.getElementById('spin');
+  if(l>0){
+    const h=Math.floor(l/36e5), m=Math.floor(l%36e5/6e4), s=Math.floor(l%6e4/1e3);
+    document.getElementById('timer').innerHTML=`До бесплатного прокрута: <b>${h}ч ${m}м ${s}с</b>`;
+    b.disabled=true;
+  } else { document.getElementById('timer').textContent='Бесплатный прокрут доступен!'; b.disabled=spinning; }
+}
+setInterval(tick,1000); tick();
+
+document.getElementById('spin').onclick = ()=>{
+  if(spinning||left()>0) return;
+  spinning=true; document.getElementById('spin').disabled=true;
+  document.getElementById('result').textContent=''; document.getElementById('claim').style.display='none';
+  const i = pick();
+  const target = 2*Math.PI*6 + (2*Math.PI - (i*ARC+ARC/2));
+  const start = angle%(2*Math.PI), dur=5000, t0=performance.now();
+  (function f(now){
+    const k=Math.min(1,(now-t0)/dur), ease=1-Math.pow(1-k,4);
+    angle = start + (target-start)*ease; draw();
+    if(k<1) return requestAnimationFrame(f);
+    spinning=false; won=PRIZES[i]; localStorage.setItem(KEY,Date.now()); tick();
+    tg?.HapticFeedback?.notificationOccurred(won.t==='Пусто'?'warning':'success');
+    document.getElementById('result').textContent = won.t==='Пусто' ? 'Не повезло, попробуй завтра' : `Ты выиграл: ${won.e} ${won.t}!`;
+    if(won.t!=='Пусто') document.getElementById('claim').style.display='block';
+  })(t0);
+};
+
+document.getElementById('claim').onclick = ()=>{
+  if(won) tg?.sendData(JSON.stringify({prize:won.t}));
+};
+draw();
+</script>
+</body>
+</html>
