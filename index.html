@@ -18,11 +18,10 @@
            border-top:16px solid transparent;border-bottom:16px solid transparent;border-right:34px solid #a46bff}
   .center{position:absolute;left:50%;top:50%;width:18%;height:18%;transform:translate(-50%,-50%);
           border-radius:50%;background:radial-gradient(circle at 35% 30%,#c9a2ff,#6a25cc);border:3px solid #e8d6ff}
-  .row{display:flex;gap:10px;width:100%;max-width:420px;margin-top:24px}
-  button{border:0;border-radius:16px;padding:16px 10px;font-size:18px;font-weight:700;color:#fff;background:var(--accent)}
+  .row{display:flex;flex-direction:column;gap:12px;width:100%;max-width:420px;margin-top:24px}
+  button{border:0;border-radius:16px;padding:18px 10px;font-size:20px;font-weight:700;color:#fff;background:var(--accent)}
   button:disabled{opacity:.5}
-  #spin{flex:1.4}
-  #free{flex:1;background:#2f9e5b;font-size:16px;display:none}
+  #free{background:#2f9e5b;font-size:18px;display:none}
   #close{display:none;width:100%;max-width:420px;margin-top:12px;background:#2a2833}
   #result{margin-top:16px;font-size:22px;min-height:30px}
   #note{color:var(--muted);margin-top:12px;font-size:16px;min-height:22px}
@@ -38,8 +37,8 @@
 </div>
 
 <div class="row">
-  <button id="free">Бесплатный прокрут</button>
   <button id="spin">Крутить</button>
+  <button id="free">Бесплатный прокрут</button>
 </div>
 <div id="result"></div>
 <div id="note"></div>
@@ -53,7 +52,7 @@ const tg = window.Telegram?.WebApp; tg?.ready(); tg?.expand();
 // Режим «магазин»:    ?free=1|0&inv=<ссылка на оплату>&p=<цена>&ch=<ссылка на канал>
 const q = new URLSearchParams(location.search);
 const result = q.get('r'), spinId = q.get('s');
-const freeAvail = q.get('free') === '1';
+const freeAvail = q.get('free') !== '0';
 const invoice = q.get('inv'), channel = q.get('ch');
 const price = q.get('p') || '5';
 
