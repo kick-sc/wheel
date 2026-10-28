@@ -77,6 +77,7 @@
   .res{display:inline-flex;align-items:center;gap:12px;padding:12px 20px;border-radius:18px;font-size:21px;font-weight:800;
        background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);animation:pop .45s cubic-bezier(.2,1.4,.4,1)}
   .res .big{font-size:40px;line-height:1}
+  .res .bigimg{width:54px;height:54px;border-radius:14px;object-fit:cover;border:2px solid rgba(255,255,255,.85)}
   .res.win{background:linear-gradient(135deg,rgba(255,212,121,.22),rgba(255,140,60,.16));
            border-color:rgba(255,212,121,.7);box-shadow:0 0 30px rgba(255,200,100,.35)}
   @keyframes pop{0%{transform:scale(.6);opacity:0}100%{transform:scale(1);opacity:1}}
@@ -125,7 +126,9 @@ const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 // Режим «магазин»:    ?free=1|0&inv=<ссылка на оплату>&p=<цена>&ch=<ссылка на канал>
 const q = new URLSearchParams(location.search);
 const result = q.get('r'), spinId = q.get('s');
-const freeAvail = q.get('free') !== '0';
+const freeFlag = q.get('free');                              // '1' доступен, '0' на паузе
+const freeUntil = parseInt(q.get('fu')||'0',10);           // unix-время (сек), когда снова доступен
+const isSub = q.get('sub') === '1';                        // бот уже подтверждал подписку
 const invoice = q.get('inv'), channel = q.get('ch');
 const price = q.get('p') || '5';
 
@@ -150,7 +153,7 @@ if(!reduceMotion){
 
 // ================= КОЛЕСО =================
 const SECTORS = [
-  {k:'nft',    e:'💎', a:'#c9b5ff', b:'#7b57f2'},
+  {k:'nft',    e:'💎', a:'#c9b5ff', b:'#7b57f2', img:'nft.png'},   // фото NFT-подарка: файл nft.png рядом с index.html
   {k:'empty'},
   {k:'bear',   e:'🧸', a:'#ffffff', b:'#e4dcfb'},
   {k:'empty'},
@@ -164,6 +167,10 @@ const SECTORS = [
 const NAMES = {nft:'NFT-гифт', bear:'Мишка', heart:'Сердечко', rose:'Роза', rocket:'Ракета'};
 const EMOJI = {nft:'💎', bear:'🧸', heart:'💝', rose:'🌹', rocket:'🚀'};
 const N = SECTORS.length, ARC = 2*Math.PI/N, TAU = 2*Math.PI;
+// загрузка фото призов (если файла нет, остаётся эмодзи)
+const IMG = {};
+SECTORS.forEach(s=>{ if(s.img){ const im=new Image(); im.onload=()=>{ IMG[s.k]=im; buildBody(); };
+  im.onerror=()=>{}; im.src=s.img; } });
 const EMOJI_FONT = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
 
 const cv = document.getElementById('c'), ctx = cv.getContext('2d');
@@ -193,9 +200,20 @@ function buildBody(){
       b.fillStyle='rgba(255,255,255,.94)'; b.beginPath(); b.roundRect(x,-h/2,w,h,h/2); b.fill();
       b.shadowColor='transparent'; b.fillStyle='#3a2a78'; b.fillText(label,px-8,3);
     } else {
-      b.font='118px '+EMOJI_FONT; b.textAlign='center';
-      b.shadowColor='rgba(40,20,100,.45)'; b.shadowBlur=18; b.shadowOffsetY=6;
-      b.fillText(p.e, RB*.66, 6);
+      if(IMG[p.k]){
+        const im=IMG[p.k], sz=170, x=RB*.66-sz/2, y=-sz/2;
+        b.shadowColor='rgba(40,20,100,.5)'; b.shadowBlur=22; b.shadowOffsetY=6;
+        b.fillStyle='rgba(255,255,255,.9)'; b.beginPath(); b.roundRect(x,y,sz,sz,34); b.fill();
+        b.shadowColor='transparent';
+        b.save(); b.beginPath(); b.roundRect(x,y,sz,sz,34); b.clip();
+        const k=Math.max(sz/im.width,sz/im.height), w=im.width*k, hh=im.height*k;
+        b.drawImage(im,x+(sz-w)/2,y+(sz-hh)/2,w,hh); b.restore();
+        b.lineWidth=5; b.strokeStyle='rgba(255,255,255,.95)'; b.beginPath(); b.roundRect(x,y,sz,sz,34); b.stroke();
+      } else {
+        b.font='118px '+EMOJI_FONT; b.textAlign='center';
+        b.shadowColor='rgba(40,20,100,.45)'; b.shadowBlur=18; b.shadowOffsetY=6;
+        b.fillText(p.e, RB*.66, 6);
+      }
     }
     b.restore();
   });
@@ -286,7 +304,7 @@ function showClose(){
 function showResult(key){
   const win = NAMES[key];
   resEl.innerHTML = win
-    ? `<div class="res win"><span class="big">${EMOJI[key]}</span><span>Ты выиграл: ${win}!</span></div>`
+    ? `<div class="res win">${IMG[key] ? `<img class="bigimg" src="${SECTORS.find(s=>s.k===key).img}" alt="">` : `<span class="big">${EMOJI[key]}</span>`}<span>Ты выиграл: ${win}!</span></div>`
     : `<div class="res"><span class="big">😔</span><span>Не повезло, попробуй ещё</span></div>`;
 }
 
@@ -331,7 +349,21 @@ if(result && spinId){
 // ================= РЕЖИМ «МАГАЗИН»: платный или бесплатный прокрут =================
 } else {
   btn.textContent = `Крутить за ${price} ⭐`;
-  if(freeAvail) freeBtn.style.display = 'block';
+  freeBtn.style.display = 'block';
+
+  // бесплатный прокрут раз в 12 часов: пока не прошло время, кнопка показывает таймер
+  const pad = (n)=>String(n).padStart(2,'0');
+  function refreshFree(){
+    const left = freeUntil - Math.floor(Date.now()/1000);
+    if(freeFlag==='0' && left>0){
+      freeBtn.disabled = true;
+      freeBtn.textContent = `Бесплатный через ${pad(Math.floor(left/3600))}:${pad(Math.floor(left%3600/60))}:${pad(left%60)}`;
+      if(!note.textContent) note.textContent = 'Бесплатный прокрут можно брать раз в 12 часов.';
+    } else {
+      freeBtn.disabled = false; freeBtn.textContent = 'Бесплатный прокрут';
+    }
+  }
+  refreshFree(); setInterval(refreshFree,1000);
 
   // Платный прокрут: окно оплаты звёздами, потом бот пришлёт результат в чат
   btn.onclick = ()=>{
@@ -346,9 +378,11 @@ if(result && spinId){
     });
   };
 
-  // Бесплатный прокрут: кнопка ВСЕГДА ведёт в канал. После этого появляется «Я подписался, проверить»
+  // Бесплатный прокрут: в первый раз ведёт в канал, потом появляется «Я подписался, проверить»
   const checkBtn = document.getElementById('check');
   freeBtn.onclick = ()=>{
+    if(freeBtn.disabled) return;
+    if(isSub){ tg?.sendData(JSON.stringify({a:'free'})); return; }   // уже подписан: бот просто перепроверит
     note.textContent = 'Подпишитесь на канал для бесплатного прокрута';
     checkBtn.style.display = 'block';
     if(channel){ tg?.openTelegramLink ? tg.openTelegramLink(channel) : window.open(channel,'_blank'); }
