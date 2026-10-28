@@ -18,13 +18,12 @@
            border-top:16px solid transparent;border-bottom:16px solid transparent;border-right:34px solid #a46bff}
   .center{position:absolute;left:50%;top:50%;width:18%;height:18%;transform:translate(-50%,-50%);
           border-radius:50%;background:radial-gradient(circle at 35% 30%,#c9a2ff,#6a25cc);border:3px solid #e8d6ff}
-  .timer{color:var(--muted);margin:24px 0 12px}
-  .timer b{color:#fff}
   button{width:100%;max-width:420px;border:0;border-radius:16px;padding:18px;font-size:20px;
-         font-weight:700;color:#fff;background:var(--accent)}
+         font-weight:700;color:#fff;background:var(--accent);margin-top:24px}
   button:disabled{opacity:.5}
   #result{margin-top:16px;font-size:22px;min-height:30px}
-  #claim{display:none;margin-top:12px;background:#2f9e5b}
+  #note{color:var(--muted);margin-top:14px;font-size:15px}
+  #close{display:none;background:#2a2833}
 </style>
 </head>
 <body>
@@ -36,31 +35,35 @@
   <div class="center"></div><div class="pointer"></div>
 </div>
 
-<div class="timer" id="timer"></div>
 <button id="spin">Крутить</button>
 <div id="result"></div>
-<button id="claim">Забрать приз</button>
+<div id="note"></div>
+<button id="close">Закрыть</button>
 
 <script>
 const tg = window.Telegram?.WebApp; tg?.ready(); tg?.expand();
 
-// Призы: t — название, e — эмодзи, w — вес (шанс), c — цвет сектора
-const PRIZES = [
-  {t:'NFT-гифт', e:'💎', w:1,  c:'#c9b8ff'},
-  {t:'Лапка',    e:'🐾', w:12, c:'#ececf2'},
-  {t:'Пусто',    e:'—',  w:25, c:'#dcd9e8'},
-  {t:'Торт',     e:'🎂', w:8,  c:'#ececf2'},
-  {t:'Пусто',    e:'—',  w:25, c:'#dcd9e8'},
-  {t:'Мишка',    e:'🧸', w:10, c:'#ececf2'},
-  {t:'Premium',  e:'⭐', w:3,  c:'#a58bf2'},
-  {t:'Лапка',    e:'🐾', w:12, c:'#ececf2'},
-  {t:'Пусто',    e:'—',  w:25, c:'#dcd9e8'},
-  {t:'Подарок',  e:'🎁', w:8,  c:'#ececf2'},
-  {t:'Шампанское',e:'🍾',w:5,  c:'#ececf2'},
+// Сектора колеса. key — какой приз; результат определяет бот и передаёт в ссылке (?r=...&s=...)
+const SECTORS = [
+  {k:'nft',    e:'💎', c:'#c9b8ff'},
+  {k:'empty',  e:'',   c:'#dcd9e8'},
+  {k:'bear',   e:'🧸', c:'#ececf2'},
+  {k:'empty',  e:'',   c:'#dcd9e8'},
+  {k:'heart',  e:'💝', c:'#ececf2'},
+  {k:'empty',  e:'',   c:'#dcd9e8'},
+  {k:'rose',   e:'🌹', c:'#ececf2'},
+  {k:'empty',  e:'',   c:'#dcd9e8'},
+  {k:'rocket', e:'🚀', c:'#a58bf2'},
+  {k:'empty',  e:'',   c:'#dcd9e8'},
 ];
-const N = PRIZES.length, ARC = 2*Math.PI/N;
+const NAMES = {nft:'💎 NFT-гифт', bear:'🧸 Мишка', heart:'💝 Сердечко', rose:'🌹 Роза', rocket:'🚀 Ракета'};
+const N = SECTORS.length, ARC = 2*Math.PI/N;
 const cv = document.getElementById('c'), ctx = cv.getContext('2d');
-let angle = 0, spinning = false, won = null;
+let angle = 0, spinning = false;
+
+const q = new URLSearchParams(location.search);
+const result = q.get('r'), spinId = q.get('s');
+const btn = document.getElementById('spin'), note = document.getElementById('note');
 
 function draw(){
   const s = cv.width, r = s/2;
@@ -69,57 +72,48 @@ function draw(){
   const g = ctx.createLinearGradient(-r,-r,r,r); g.addColorStop(0,'#f0d9ff'); g.addColorStop(1,'#8f6bff');
   ctx.beginPath(); ctx.arc(0,0,r-4,0,7); ctx.fillStyle=g; ctx.fill();
   ctx.rotate(angle);
-  PRIZES.forEach((p,i)=>{
+  SECTORS.forEach((p,i)=>{
     ctx.beginPath(); ctx.moveTo(0,0); ctx.arc(0,0,r-50,i*ARC,(i+1)*ARC); ctx.closePath();
     ctx.fillStyle=p.c; ctx.fill(); ctx.strokeStyle='#fff8'; ctx.lineWidth=2; ctx.stroke();
     ctx.save(); ctx.rotate(i*ARC+ARC/2); ctx.textAlign='right'; ctx.textBaseline='middle';
-    ctx.fillStyle = p.t==='Premium'||p.t==='NFT-гифт' ? '#fff' : '#222';
-    if(p.e==='—'){ ctx.font='bold 38px system-ui'; ctx.fillText('Пусто!', r-90, 0); }
+    if(p.k==='empty'){ ctx.fillStyle='#222'; ctx.font='bold 38px system-ui'; ctx.fillText('Пусто!', r-90, 0); }
     else { ctx.font='64px system-ui'; ctx.fillText(p.e, r-90, 0); }
     ctx.restore();
   });
   ctx.restore();
 }
 
-// выбор приза с учётом весов
-function pick(){
-  const sum = PRIZES.reduce((a,p)=>a+p.w,0); let x = Math.random()*sum;
-  for(let i=0;i<N;i++){ if((x-=PRIZES[i].w)<0) return i; } return 0;
+// Проверка: ссылка должна прийти из бота, и этот прокрут ещё не крутили
+function used(){ try{ return localStorage.getItem('spin_'+spinId)==='1'; }catch(e){ return false; } }
+function markUsed(){ try{ localStorage.setItem('spin_'+spinId,'1'); }catch(e){} }
+
+if(!result || !spinId){
+  btn.disabled = true;
+  note.textContent = 'Вернись в бота и выбери прокрут: бесплатный или за звёзды.';
+} else if(used()){
+  btn.disabled = true;
+  note.textContent = 'Этот прокрут уже использован. Выбери новый в боте.';
 }
 
-// кулдаун 24ч (в localStorage; для честной защиты нужен сервер)
-const KEY='lastSpin', COOLDOWN=24*3600*1000;
-const left = ()=> Math.max(0, COOLDOWN-(Date.now()-(+localStorage.getItem(KEY)||0)));
-function tick(){
-  const l=left(), b=document.getElementById('spin');
-  if(l>0){
-    const h=Math.floor(l/36e5), m=Math.floor(l%36e5/6e4), s=Math.floor(l%6e4/1e3);
-    document.getElementById('timer').innerHTML=`До бесплатного прокрута: <b>${h}ч ${m}м ${s}с</b>`;
-    b.disabled=true;
-  } else { document.getElementById('timer').textContent='Бесплатный прокрут доступен!'; b.disabled=spinning; }
-}
-setInterval(tick,1000); tick();
-
-document.getElementById('spin').onclick = ()=>{
-  if(spinning||left()>0) return;
-  spinning=true; document.getElementById('spin').disabled=true;
-  document.getElementById('result').textContent=''; document.getElementById('claim').style.display='none';
-  const i = pick();
+btn.onclick = ()=>{
+  if(spinning || btn.disabled) return;
+  spinning = true; btn.disabled = true; markUsed();
+  // выбираем случайный сектор с нужным результатом
+  const idx = SECTORS.map((s,i)=>s.k===result?i:-1).filter(i=>i>=0);
+  const i = idx.length ? idx[Math.floor(Math.random()*idx.length)] : 1;
   const target = 2*Math.PI*6 + (2*Math.PI - (i*ARC+ARC/2));
   const start = angle%(2*Math.PI), dur=5000, t0=performance.now();
   (function f(now){
     const k=Math.min(1,(now-t0)/dur), ease=1-Math.pow(1-k,4);
     angle = start + (target-start)*ease; draw();
     if(k<1) return requestAnimationFrame(f);
-    spinning=false; won=PRIZES[i]; localStorage.setItem(KEY,Date.now()); tick();
-    tg?.HapticFeedback?.notificationOccurred(won.t==='Пусто'?'warning':'success');
-    document.getElementById('result').textContent = won.t==='Пусто' ? 'Не повезло, попробуй завтра' : `Ты выиграл: ${won.e} ${won.t}!`;
-    if(won.t!=='Пусто') document.getElementById('claim').style.display='block';
+    spinning=false;
+    const win = NAMES[result];
+    tg?.HapticFeedback?.notificationOccurred(win?'success':'warning');
+    document.getElementById('result').textContent = win ? `Ты выиграл: ${win}!` : 'Не повезло, попробуй ещё';
+    note.textContent = win ? 'Админ скоро свяжется с тобой и отправит подарок.' : '';
+    const c = document.getElementById('close'); c.style.display='block'; c.onclick=()=>tg?.close();
   })(t0);
-};
-
-document.getElementById('claim').onclick = ()=>{
-  if(won) tg?.sendData(JSON.stringify({prize:won.t}));
 };
 draw();
 </script>
