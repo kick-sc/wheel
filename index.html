@@ -1,152 +1,169 @@
-# Бот с колесом: бесплатный прокрут за подписку + платный за звёзды.
-# Запросы к Telegram идут через curl. Библиотеки не нужны.
-import json, random, subprocess, time, urllib.parse
+<!DOCTYPколесом
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Колесо подарков</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root{--bg:#121118;--accent:#7b2fe0;--muted:#8d8a99}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:#fff;font-family:system-ui,-apple-system,Roboto,sans-serif;
+       min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:24px 16px;text-align:center}
+  h1{font-size:34px;font-style:italic;font-weight:900;margin-top:12px}
+  .sub{color:var(--muted);margin:6px 0 20px;font-size:17px}
+  .wrap{position:relative;width:min(92vw,420px);aspect-ratio:1}
+  canvas{width:100%;height:100%;display:block}
+  .pointer{position:absolute;right:-6px;top:50%;transform:translateY(-50%);width:0;height:0;
+           border-top:16px solid transparent;border-bottom:16px solid transparent;border-right:34px solid #a46bff}
+  .center{position:absolute;left:50%;top:50%;width:18%;height:18%;transform:translate(-50%,-50%);
+          border-radius:50%;background:radial-gradient(circle at 35% 30%,#c9a2ff,#6a25cc);border:3px solid #e8d6ff}
+  .row{display:flex;gap:10px;width:100%;max-width:420px;margin-top:24px}
+  button{border:0;border-radius:16px;padding:16px 10px;font-size:18px;font-weight:700;color:#fff;background:var(--accent)}
+  button:disabled{opacity:.5}
+  #spin{flex:1.4}
+  #free{flex:1;background:#2f9e5b;font-size:16px;display:none}
+  #close{display:none;width:100%;max-width:420px;margin-top:12px;background:#2a2833}
+  #result{margin-top:16px;font-size:22px;min-height:30px}
+  #note{color:var(--muted);margin-top:12px;font-size:16px;min-height:22px}
+</style>
+</head>
+<body>
+<h1>КРУТИ КОЛЕСО</h1>
+<div class="sub">И выигрывай подарки бесплатно</div>
 
-TOKEN = "8932078716:AAFh_k1FXAxVHAHBjGX0WSFf8z94EN3ZU_0"
-WEBAPP_URL = "https://kick-sc.github.io/wheel/"
-ADMIN_ID = 5951560075                      # твой Telegram ID (число)
-CHANNEL = "@fromitallyy"                  # юзернейм канала. Бот должен быть АДМИНОМ канала
-CHANNEL_LINK = "https://t.me/fromitallyy"
-STARS_PRICE = 3                           # цена прокрута в звёздах
+<div class="wrap">
+  <canvas id="c" width="840" height="840"></canvas>
+  <div class="center"></div><div class="pointer"></div>
+</div>
 
-# Призы и шансы (веса). Сумма не обязана быть 100: шанс = вес / сумма весов
-PRIZES = [
-    ("empty",  "Пусто",        80),
-    ("bear",   "🧸 Мишка",      5),
-    ("heart",  "💝 Сердечко",   5),
-    ("rose",   "🌹 Роза",       3),
-    ("rocket", "🚀 Ракета",     1),
-    ("nft",    "💎 NFT-гифт",   0),
-]
+<div class="row">
+  <button id="free">Бесплатный прокрут</button>
+  <button id="spin">Крутить</button>
+</div>
+<div id="result"></div>
+<div id="note"></div>
+<button id="close">Закрыть</button>
 
-API = f"https://api.telegram.org/bot{TOKEN}/"
-STATE_FILE = "state.json"
-INVOICE_LINK = ""     # создаётся при запуске
+<script>
+const tg = window.Telegram?.WebApp; tg?.ready(); tg?.expand();
 
-# ---------- хранилище ----------
-def load():
-    try:
-        with open(STATE_FILE) as f: return json.load(f)
-    except Exception:
-        return {"free_used": [], "log": []}
+// ---- параметры из ссылки (их ставит бот) ----
+// Режим «результат»:  ?r=<приз>&s=<id>     — кнопка «Крутить» запускает анимацию
+// Режим «магазин»:    ?free=1|0&inv=<ссылка на оплату>&p=<цена>&ch=<ссылка на канал>
+const q = new URLSearchParams(location.search);
+const result = q.get('r'), spinId = q.get('s');
+const freeAvail = q.get('free') === '1';
+const invoice = q.get('inv'), channel = q.get('ch');
+const price = q.get('p') || '5';
 
-def save(st):
-    with open(STATE_FILE, "w") as f: json.dump(st, f, ensure_ascii=False)
+const btn = document.getElementById('spin'), freeBtn = document.getElementById('free');
+const note = document.getElementById('note'), resEl = document.getElementById('result');
+const store = {
+  get:(k)=>{ try{return localStorage.getItem(k);}catch(e){return null;} },
+  set:(k,v)=>{ try{localStorage.setItem(k,v);}catch(e){} }
+};
 
-# ---------- Telegram API через curl ----------
-def call(method, **params):
-    r = subprocess.run(
-        ["curl", "-4", "-sS", "-m", "70", "-X", "POST",
-         "-H", "Content-Type: application/json",
-         "-d", json.dumps(params), API + method],
-        capture_output=True, text=True)
-    if r.returncode != 0:
-        raise RuntimeError(r.stderr.strip() or f"curl code {r.returncode}")
-    data = json.loads(r.stdout)
-    if not data.get("ok"):
-        raise RuntimeError(str(data))
-    return data
+// ---- колесо ----
+const SECTORS = [
+  {k:'nft',    e:'💎', c:'#c9b8ff'},
+  {k:'empty',  e:'',   c:'#dcd9e8'},
+  {k:'bear',   e:'🧸', c:'#ececf2'},
+  {k:'empty',  e:'',   c:'#dcd9e8'},
+  {k:'heart',  e:'💝', c:'#ececf2'},
+  {k:'empty',  e:'',   c:'#dcd9e8'},
+  {k:'rose',   e:'🌹', c:'#ececf2'},
+  {k:'empty',  e:'',   c:'#dcd9e8'},
+  {k:'rocket', e:'🚀', c:'#a58bf2'},
+  {k:'empty',  e:'',   c:'#dcd9e8'},
+];
+const NAMES = {nft:'💎 NFT-гифт', bear:'🧸 Мишка', heart:'💝 Сердечко', rose:'🌹 Роза', rocket:'🚀 Ракета'};
+const N = SECTORS.length, ARC = 2*Math.PI/N;
+const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+let angle = 0, spinning = false;
 
-def send(chat_id, text, **kw):
-    return call("sendMessage", chat_id=chat_id, text=text, parse_mode="HTML", **kw)
+function draw(){
+  const s = cv.width, r = s/2;
+  ctx.clearRect(0,0,s,s);
+  ctx.save(); ctx.translate(r,r);
+  const g = ctx.createLinearGradient(-r,-r,r,r); g.addColorStop(0,'#f0d9ff'); g.addColorStop(1,'#8f6bff');
+  ctx.beginPath(); ctx.arc(0,0,r-4,0,7); ctx.fillStyle=g; ctx.fill();
+  ctx.rotate(angle);
+  SECTORS.forEach((p,i)=>{
+    ctx.beginPath(); ctx.moveTo(0,0); ctx.arc(0,0,r-50,i*ARC,(i+1)*ARC); ctx.closePath();
+    ctx.fillStyle=p.c; ctx.fill(); ctx.strokeStyle='#fff8'; ctx.lineWidth=2; ctx.stroke();
+    ctx.save(); ctx.rotate(i*ARC+ARC/2); ctx.textAlign='right'; ctx.textBaseline='middle';
+    if(p.k==='empty'){ ctx.fillStyle='#222'; ctx.font='bold 38px system-ui'; ctx.fillText('Пусто!', r-90, 0); }
+    else { ctx.font='64px system-ui'; ctx.fillText(p.e, r-90, 0); }
+    ctx.restore();
+  });
+  ctx.restore();
+}
 
-def username(u):
-    return "@" + u["username"] if u.get("username") else u.get("first_name", "?")
+function showClose(){
+  const c = document.getElementById('close'); c.style.display='block'; c.onclick=()=>tg?.close();
+}
 
-# ---------- кнопка колеса с актуальным состоянием ----------
-def wheel_keyboard(user_id):
-    free = 0 if user_id in load()["free_used"] else 1
-    q = urllib.parse.urlencode({"free": free, "inv": INVOICE_LINK,
-                                "p": STARS_PRICE, "ch": CHANNEL_LINK})
-    return {"keyboard": [[{"text": "🎡 Крутить колесо", "web_app": {"url": f"{WEBAPP_URL}?{q}"}}]],
-            "resize_keyboard": True}
+// ================= РЕЖИМ «РЕЗУЛЬТАТ»: бот выдал прокрут =================
+if(result && spinId){
+  freeBtn.style.display = 'none';
+  btn.textContent = 'Крутить';
+  if(store.get('spin_'+spinId)==='1'){
+    btn.disabled = true;
+    note.textContent = 'Этот прокрут уже использован. Открой колесо в боте заново.';
+  }
+  btn.onclick = ()=>{
+    if(spinning || btn.disabled) return;
+    spinning = true; btn.disabled = true; store.set('spin_'+spinId,'1');
+    const idx = SECTORS.map((s,i)=>s.k===result?i:-1).filter(i=>i>=0);
+    const i = idx.length ? idx[Math.floor(Math.random()*idx.length)] : 1;
+    const target = 2*Math.PI*6 + (2*Math.PI - (i*ARC+ARC/2));
+    const start = angle%(2*Math.PI), dur=5000, t0=performance.now();
+    (function f(now){
+      const k=Math.min(1,(now-t0)/dur), ease=1-Math.pow(1-k,4);
+      angle = start + (target-start)*ease; draw();
+      if(k<1) return requestAnimationFrame(f);
+      spinning=false;
+      const win = NAMES[result];
+      tg?.HapticFeedback?.notificationOccurred(win?'success':'warning');
+      resEl.textContent = win ? `Ты выиграл: ${win}!` : 'Не повезло, попробуй ещё';
+      note.textContent = win ? 'Админ скоро свяжется с тобой и отправит подарок.' : '';
+      showClose();
+    })(t0);
+  };
 
-# ---------- логика прокрута ----------
-def do_spin(user, chat, source):
-    key, name, _ = random.choices(PRIZES, weights=[p[2] for p in PRIZES])[0]
-    spin_id = int(time.time() * 1000)
-    st = load()
-    st["log"].append({"id": spin_id, "user": user["id"], "name": username(user),
-                      "prize": key, "source": source})
-    save(st)
-    url = f"{WEBAPP_URL}?r={key}&s={spin_id}"
-    send(chat, "🎡 Прокрут готов! Жми кнопку и крути колесо.\n"
-               f"Результат: <tg-spoiler>{name}</tg-spoiler>",
-         reply_markup={"inline_keyboard": [[{"text": "🎡 Крутить", "web_app": {"url": url}}]]})
-    if key != "empty":
-        send(ADMIN_ID, f"🏆 Выигрыш: {name}\nПользователь: {username(user)} (id {user['id']})\n"
-                       f"Источник: {source}")
+// ================= РЕЖИМ «МАГАЗИН»: платный или бесплатный прокрут =================
+} else {
+  btn.textContent = `Крутить за ${price} ⭐`;
+  if(freeAvail) freeBtn.style.display = 'block';
 
-def is_subscribed(user_id):
-    m = call("getChatMember", chat_id=CHANNEL, user_id=user_id)["result"]
-    return m["status"] in ("member", "administrator", "creator")
+  // Платный прокрут: окно оплаты звёздами, потом бот пришлёт результат в чат
+  btn.onclick = ()=>{
+    if(!invoice){ note.textContent = 'Нет ссылки на оплату. Открой колесо через бота (/start).'; return; }
+    if(!tg?.openInvoice){ note.textContent = 'Открой колесо внутри Telegram.'; return; }
+    tg.openInvoice(invoice, (status)=>{
+      if(status === 'paid'){
+        note.textContent = 'Оплачено! Возвращаюсь в чат, там будет твой прокрут.';
+        setTimeout(()=>tg.close(), 1200);
+      } else if(status === 'cancelled'){ note.textContent = 'Оплата отменена.'; }
+      else if(status === 'failed'){ note.textContent = 'Не получилось оплатить, попробуй ещё раз.'; }
+    });
+  };
 
-def on_free(user, chat):
-    st = load()
-    if user["id"] in st["free_used"]:
-        send(chat, "Бесплатный прокрут ты уже получал. Дальше можно крутить за звёзды.",
-             reply_markup=wheel_keyboard(user["id"]))
-        return
-    try:
-        ok = is_subscribed(user["id"])
-    except Exception as e:
-        send(chat, "Не получилось проверить подписку, попробуй позже.")
-        send(ADMIN_ID, f"⚠️ Ошибка проверки подписки: {e}\n"
-                       f"Проверь CHANNEL в bot_curl.py и что бот админ канала.")
-        return
-    if not ok:
-        send(chat, "Подписка не найдена. Подпишись на канал и снова нажми «Бесплатный прокрут» в колесе.",
-             reply_markup={"inline_keyboard": [[{"text": "📢 Подписаться", "url": CHANNEL_LINK}]]})
-        return
-    st["free_used"].append(user["id"]); save(st)
-    send(chat, "✅ Подписка подтверждена! Бесплатный прокрут твой.",
-         reply_markup=wheel_keyboard(user["id"]))
-    do_spin(user, chat, "бесплатный (подписка)")
-
-# ---------- обработка событий ----------
-def handle_message(m):
-    chat, user = m["chat"]["id"], m.get("from", {})
-    if m.get("successful_payment"):
-        pay = m["successful_payment"]
-        send(ADMIN_ID, f"💰 Оплата {pay['total_amount']}⭐ от {username(user)} (id {user['id']})\n"
-                       f"charge_id: <code>{pay['telegram_payment_charge_id']}</code>")
-        do_spin(user, chat, f"платный ({STARS_PRICE}⭐)")
-    elif m.get("web_app_data"):
-        try: data = json.loads(m["web_app_data"]["data"])
-        except Exception: return
-        if data.get("a") == "free":
-            on_free(user, chat)
-    elif m.get("text", "").startswith("/start"):
-        send(chat, "Крути колесо и выигрывай подарки! Жми кнопку внизу 👇",
-             reply_markup=wheel_keyboard(user["id"]))
-
-def handle(u):
-    if "message" in u:
-        handle_message(u["message"])
-    elif "pre_checkout_query" in u:
-        call("answerPreCheckoutQuery", pre_checkout_query_id=u["pre_checkout_query"]["id"], ok=True)
-
-def main():
-    global INVOICE_LINK
-    while not INVOICE_LINK:
-        try:
-            INVOICE_LINK = call("createInvoiceLink", title="Прокрут колеса",
-                                description="Один прокрут колеса подарков",
-                                payload="spin", currency="XTR",
-                                prices=[{"label": "Прокрут", "amount": STARS_PRICE}])["result"]
-        except Exception as e:
-            print("Ошибка создания ссылки оплаты:", e); time.sleep(5)
-    print("Бот запущен")
-    offset = 0
-    while True:
-        try:
-            res = call("getUpdates", offset=offset, timeout=50)
-            for u in res.get("result", []):
-                offset = u["update_id"] + 1
-                try: handle(u)
-                except Exception as e: print("Ошибка обработки:", e)
-        except Exception as e:
-            print("Ошибка:", e)
-            time.sleep(3)
-
-main()
+  // Бесплатный прокрут: 1-е нажатие ведёт в канал, 2-е просит бота проверить подписку
+  if(store.get('free_step')==='1') freeBtn.textContent = 'Я подписался, проверить';
+  freeBtn.onclick = ()=>{
+    if(store.get('free_step')==='1'){
+      tg?.sendData(JSON.stringify({a:'free'}));   // бот проверит подписку, окно закроется
+      return;
+    }
+    note.textContent = 'Подпишитесь на канал для бесплатного прокрута';
+    store.set('free_step','1');
+    freeBtn.textContent = 'Я подписался, проверить';
+    if(channel){ tg?.openTelegramLink ? tg.openTelegramLink(channel) : window.open(channel,'_blank'); }
+  };
+}
+draw();
+</script>
+</body>
+</html>
