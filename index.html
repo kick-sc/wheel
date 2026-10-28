@@ -22,6 +22,7 @@
   button{border:0;border-radius:16px;padding:18px 10px;font-size:20px;font-weight:700;color:#fff;background:var(--accent)}
   button:disabled{opacity:.5}
   #free{background:#2f9e5b;font-size:18px;display:none}
+  #check{background:#2a2833;border:2px solid #2f9e5b;font-size:18px;display:none}
   #close{display:none;width:100%;max-width:420px;margin-top:12px;background:#2a2833}
   #result{margin-top:16px;font-size:22px;min-height:30px}
   #note{color:var(--muted);margin-top:12px;font-size:16px;min-height:22px}
@@ -39,6 +40,7 @@
 <div class="row">
   <button id="spin">Крутить</button>
   <button id="free">Бесплатный прокрут</button>
+  <button id="check">Я подписался, проверить</button>
 </div>
 <div id="result"></div>
 <div id="note"></div>
@@ -149,17 +151,15 @@ if(result && spinId){
     });
   };
 
-  // Бесплатный прокрут: 1-е нажатие ведёт в канал, 2-е просит бота проверить подписку
-  if(store.get('free_step')==='1') freeBtn.textContent = 'Я подписался, проверить';
+  // Бесплатный прокрут: кнопка ВСЕГДА ведёт в канал. После этого появляется «Я подписался, проверить»
+  const checkBtn = document.getElementById('check');
   freeBtn.onclick = ()=>{
-    if(store.get('free_step')==='1'){
-      tg?.sendData(JSON.stringify({a:'free'}));   // бот проверит подписку, окно закроется
-      return;
-    }
     note.textContent = 'Подпишитесь на канал для бесплатного прокрута';
-    store.set('free_step','1');
-    freeBtn.textContent = 'Я подписался, проверить';
+    checkBtn.style.display = 'block';
     if(channel){ tg?.openTelegramLink ? tg.openTelegramLink(channel) : window.open(channel,'_blank'); }
+  };
+  checkBtn.onclick = ()=>{
+    tg?.sendData(JSON.stringify({a:'free'}));   // бот проверит подписку, окно закроется
   };
 }
 draw();
