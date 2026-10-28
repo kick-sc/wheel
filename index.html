@@ -78,6 +78,7 @@
        background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);animation:pop .45s cubic-bezier(.2,1.4,.4,1)}
   .res .big{font-size:40px;line-height:1}
   .res .bigimg{width:54px;height:54px;border-radius:14px;object-fit:cover;border:2px solid rgba(255,255,255,.85)}
+  .res .bigimg.alpha{border:0;border-radius:0;object-fit:contain;width:64px;height:64px;filter:drop-shadow(0 0 10px rgba(255,200,80,.8))}
   .res.win{background:linear-gradient(135deg,rgba(255,212,121,.22),rgba(255,140,60,.16));
            border-color:rgba(255,212,121,.7);box-shadow:0 0 30px rgba(255,200,100,.35)}
   @keyframes pop{0%{transform:scale(.6);opacity:0}100%{transform:scale(1);opacity:1}}
@@ -169,7 +170,11 @@ const EMOJI = {nft:'💎', bear:'🧸', heart:'💝', rose:'🌹', rocket:'🚀'
 const N = SECTORS.length, ARC = 2*Math.PI/N, TAU = 2*Math.PI;
 // загрузка фото призов (если файла нет, остаётся эмодзи)
 const IMG = {};
-SECTORS.forEach(s=>{ if(s.img){ const im=new Image(); im.onload=()=>{ IMG[s.k]=im; buildBody(); };
+const IMG_ALPHA = {};   // true, если у картинки прозрачный фон
+SECTORS.forEach(s=>{ if(s.img){ const im=new Image(); im.onload=()=>{
+    try{ const t=document.createElement('canvas'); t.width=t.height=8; const x=t.getContext('2d');
+         x.drawImage(im,0,0,8,8); IMG_ALPHA[s.k] = x.getImageData(0,0,1,1).data[3] < 200; }catch(e){}
+    IMG[s.k]=im; buildBody(); };
   im.onerror=()=>{}; im.src=s.img; } });
 const EMOJI_FONT = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
 
@@ -201,14 +206,23 @@ function buildBody(){
       b.shadowColor='transparent'; b.fillStyle='#3a2a78'; b.fillText(label,px-8,3);
     } else {
       if(IMG[p.k]){
-        const im=IMG[p.k], sz=170, x=RB*.66-sz/2, y=-sz/2;
-        b.shadowColor='rgba(40,20,100,.5)'; b.shadowBlur=22; b.shadowOffsetY=6;
-        b.fillStyle='rgba(255,255,255,.9)'; b.beginPath(); b.roundRect(x,y,sz,sz,34); b.fill();
-        b.shadowColor='transparent';
-        b.save(); b.beginPath(); b.roundRect(x,y,sz,sz,34); b.clip();
-        const k=Math.max(sz/im.width,sz/im.height), w=im.width*k, hh=im.height*k;
-        b.drawImage(im,x+(sz-w)/2,y+(sz-hh)/2,w,hh); b.restore();
-        b.lineWidth=5; b.strokeStyle='rgba(255,255,255,.95)'; b.beginPath(); b.roundRect(x,y,sz,sz,34); b.stroke();
+        const im=IMG[p.k], sz=IMG_ALPHA[p.k] ? 200 : 170, x=RB*.66-sz/2, y=-sz/2;
+        if(IMG_ALPHA[p.k]){
+          // прозрачный PNG: рисуем сам предмет, без рамки, с мягким свечением
+          const k=Math.min(sz/im.width,sz/im.height), w=im.width*k, hh=im.height*k;
+          b.shadowColor='rgba(255,190,60,.85)'; b.shadowBlur=26; b.shadowOffsetY=0;
+          b.drawImage(im,x+(sz-w)/2,y+(sz-hh)/2,w,hh);
+          b.shadowColor='rgba(40,20,100,.5)'; b.shadowBlur=14; b.shadowOffsetY=8;
+          b.drawImage(im,x+(sz-w)/2,y+(sz-hh)/2,w,hh);
+        } else {
+          b.shadowColor='rgba(40,20,100,.5)'; b.shadowBlur=22; b.shadowOffsetY=6;
+          b.fillStyle='rgba(255,255,255,.9)'; b.beginPath(); b.roundRect(x,y,sz,sz,34); b.fill();
+          b.shadowColor='transparent';
+          b.save(); b.beginPath(); b.roundRect(x,y,sz,sz,34); b.clip();
+          const k=Math.max(sz/im.width,sz/im.height), w=im.width*k, hh=im.height*k;
+          b.drawImage(im,x+(sz-w)/2,y+(sz-hh)/2,w,hh); b.restore();
+          b.lineWidth=5; b.strokeStyle='rgba(255,255,255,.95)'; b.beginPath(); b.roundRect(x,y,sz,sz,34); b.stroke();
+        }
       } else {
         b.font='118px '+EMOJI_FONT; b.textAlign='center';
         b.shadowColor='rgba(40,20,100,.45)'; b.shadowBlur=18; b.shadowOffsetY=6;
@@ -304,7 +318,7 @@ function showClose(){
 function showResult(key){
   const win = NAMES[key];
   resEl.innerHTML = win
-    ? `<div class="res win">${IMG[key] ? `<img class="bigimg" src="${SECTORS.find(s=>s.k===key).img}" alt="">` : `<span class="big">${EMOJI[key]}</span>`}<span>Ты выиграл: ${win}!</span></div>`
+    ? `<div class="res win">${IMG[key] ? `<img class="bigimg${IMG_ALPHA[key]?' alpha':''}" src="${SECTORS.find(s=>s.k===key).img}" alt="">` : `<span class="big">${EMOJI[key]}</span>`}<span>Ты выиграл: ${win}!</span></div>`
     : `<div class="res"><span class="big">😔</span><span>Не повезло, попробуй ещё</span></div>`;
 }
 
