@@ -18,7 +18,7 @@
     color:#fff;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
     background:radial-gradient(120% 70% at 50% 0%,var(--bg1) 0%,var(--bg2) 62%) fixed;
     min-height:100vh;display:flex;flex-direction:column;align-items:center;
-    padding:max(20px,env(safe-area-inset-top)) 16px max(28px,env(safe-area-inset-bottom));
+    padding:calc(max(12px,env(safe-area-inset-top)) + 50px) 16px max(28px,env(safe-area-inset-bottom));
     text-align:center;overflow-x:hidden;position:relative
   }
   /* мерцающие звёзды */
@@ -26,8 +26,14 @@
         animation:tw 3.2s ease-in-out infinite;pointer-events:none;z-index:0}
   @keyframes tw{0%,100%{opacity:.05;transform:scale(.6)}50%{opacity:.9;transform:scale(1.3)}}
 
-  h1{position:relative;z-index:1;font-size:clamp(30px,9vw,40px);font-style:italic;font-weight:900;
-     letter-spacing:.5px;margin-top:10px;
+  .tgico{position:absolute;z-index:6;top:max(12px,env(safe-area-inset-top));right:14px;width:42px;height:42px;border-radius:50%;
+         display:flex;align-items:center;justify-content:center;
+         background:linear-gradient(180deg,#37b6f0 0%,#1d8fd1 100%);
+         box-shadow:0 4px 16px rgba(30,150,220,.55),inset 0 1px 0 rgba(255,255,255,.4)}
+  .tgico svg{width:22px;height:22px;margin-right:2px}
+  .tgico:active{transform:scale(.93)}
+  h1{position:relative;z-index:1;font-size:clamp(26px,8vw,36px);font-style:italic;font-weight:900;
+     letter-spacing:.5px;margin-top:0;
      background:linear-gradient(90deg,#fff 0%,#d9c6ff 50%,#9bb7ff 100%);
      -webkit-background-clip:text;background-clip:text;color:transparent;
      filter:drop-shadow(0 4px 18px rgba(139,61,255,.45))}
@@ -91,6 +97,9 @@
 </style>
 </head>
 <body>
+<a class="tgico" id="tgico" href="https://t.me/FortunaChannelL" aria-label="Официальный канал" title="Официальный канал">
+  <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#fff" d="M9.6 15.6l-.4 4.2c.6 0 .9-.3 1.2-.6l2.9-2.7 6 4.4c1.1.6 1.9.3 2.2-1L23.9 3.9c.4-1.6-.6-2.3-1.7-1.9L1.5 9.9C-.1 10.5-.1 11.4 1.2 11.8l5.3 1.7L18.8 5.7c.6-.4 1.1-.2.7.2z"/></svg>
+</a>
 <h1>КРУТИ КОЛЕСО</h1>
 <div class="sub">И выигрывай подарки бесплатно</div>
 
@@ -136,6 +145,11 @@ const price = q.get('p') || '5';
 const btn = document.getElementById('spin'), freeBtn = document.getElementById('free');
 const note = document.getElementById('note'), resEl = document.getElementById('result');
 const pointer = document.getElementById('pointer');
+// иконка Telegram: открывает официальный канал бота
+document.getElementById('tgico').addEventListener('click',(e)=>{
+  e.preventDefault(); const u='https://t.me/FortunaChannelL';
+  if(tg?.openTelegramLink) tg.openTelegramLink(u); else window.open(u,'_blank');
+});
 const store = {
   get:(k)=>{ try{return localStorage.getItem(k);}catch(e){return null;} },
   set:(k,v)=>{ try{localStorage.setItem(k,v);}catch(e){} }
@@ -166,6 +180,7 @@ const SECTORS = [
   {k:'empty'},
 ];
 const NAMES = {nft:'NFT-гифт', bear:'Мишка', heart:'Сердечко', rose:'Роза', rocket:'Ракета'};
+const LABELS = {nft:'NFT', bear:'Мишка', heart:'Сердечко', rose:'Роза', rocket:'Ракета'};   // короткие подписи на колесе
 const EMOJI = {nft:'💎', bear:'🧸', heart:'💝', rose:'🌹', rocket:'🚀'};
 const N = SECTORS.length, ARC = 2*Math.PI/N, TAU = 2*Math.PI;
 // загрузка фото призов (если файла нет, остаётся эмодзи)
@@ -196,17 +211,24 @@ function buildBody(){
     b.lineWidth = 3; b.strokeStyle = 'rgba(255,255,255,.55)'; b.stroke();
 
     b.save(); b.rotate(i*ARC+ARC/2); b.textBaseline='middle';
-    if(p.k==='empty'){
-      // «таблетка» с надписью
-      const label='Пусто!', fs=44;
+    // общая функция «таблетки» с названием, прижатой к внешнему краю сектора
+    const pill=(label,fs,bg,fg,border)=>{
       b.font='800 '+fs+'px system-ui,sans-serif'; b.textAlign='right';
-      const tw=b.measureText(label).width, px=RB-44, h=fs+26, w=tw+44, x=px-w+14;
+      const tw=b.measureText(label).width, px=RB-40, h=fs+22, w=tw+38, x=px-w+14;
       b.shadowColor='rgba(20,10,60,.45)'; b.shadowBlur=14; b.shadowOffsetY=4;
-      b.fillStyle='rgba(255,255,255,.94)'; b.beginPath(); b.roundRect(x,-h/2,w,h,h/2); b.fill();
-      b.shadowColor='transparent'; b.fillStyle='#3a2a78'; b.fillText(label,px-8,3);
+      b.fillStyle=bg; b.beginPath(); b.roundRect(x,-h/2,w,h,h/2); b.fill();
+      b.shadowColor='transparent';
+      if(border){ b.lineWidth=3; b.strokeStyle=border; b.stroke(); }
+      b.fillStyle=fg; b.fillText(label,px-5,3);
+    };
+    if(p.k==='empty'){
+      pill('Пусто!',44,'rgba(255,255,255,.94)','#3a2a78');
     } else {
+      // название призов: рядом с эмодзи, например «Мишка 🧸»
+      const light = (p.k==='nft');
+      pill(LABELS[p.k], 34, light?'rgba(255,255,255,.95)':'#3a2a78', light?'#3a2a78':'#ffffff', light?null:'rgba(255,255,255,.85)');
       if(IMG[p.k]){
-        const im=IMG[p.k], sz=IMG_ALPHA[p.k] ? 200 : 170, x=RB*.66-sz/2, y=-sz/2;
+        const im=IMG[p.k], sz=IMG_ALPHA[p.k] ? 190 : 150, x=225-sz/2, y=-sz/2;
         if(IMG_ALPHA[p.k]){
           // прозрачный PNG: рисуем сам предмет, без рамки, с мягким свечением
           const k=Math.min(sz/im.width,sz/im.height), w=im.width*k, hh=im.height*k;
@@ -216,17 +238,17 @@ function buildBody(){
           b.drawImage(im,x+(sz-w)/2,y+(sz-hh)/2,w,hh);
         } else {
           b.shadowColor='rgba(40,20,100,.5)'; b.shadowBlur=22; b.shadowOffsetY=6;
-          b.fillStyle='rgba(255,255,255,.9)'; b.beginPath(); b.roundRect(x,y,sz,sz,34); b.fill();
+          b.fillStyle='rgba(255,255,255,.9)'; b.beginPath(); b.roundRect(x,y,sz,sz,30); b.fill();
           b.shadowColor='transparent';
-          b.save(); b.beginPath(); b.roundRect(x,y,sz,sz,34); b.clip();
+          b.save(); b.beginPath(); b.roundRect(x,y,sz,sz,30); b.clip();
           const k=Math.max(sz/im.width,sz/im.height), w=im.width*k, hh=im.height*k;
           b.drawImage(im,x+(sz-w)/2,y+(sz-hh)/2,w,hh); b.restore();
-          b.lineWidth=5; b.strokeStyle='rgba(255,255,255,.95)'; b.beginPath(); b.roundRect(x,y,sz,sz,34); b.stroke();
+          b.lineWidth=5; b.strokeStyle='rgba(255,255,255,.95)'; b.beginPath(); b.roundRect(x,y,sz,sz,30); b.stroke();
         }
       } else {
-        b.font='118px '+EMOJI_FONT; b.textAlign='center';
-        b.shadowColor='rgba(40,20,100,.45)'; b.shadowBlur=18; b.shadowOffsetY=6;
-        b.fillText(p.e, RB*.66, 6);
+        b.font='86px '+EMOJI_FONT; b.textAlign='center';
+        b.shadowColor='rgba(40,20,100,.45)'; b.shadowBlur=16; b.shadowOffsetY=5;
+        b.fillText(p.e, 182, 6);
       }
     }
     b.restore();
