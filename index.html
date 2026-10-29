@@ -334,8 +334,15 @@ function stepFx(){
   if(parts.length) requestAnimationFrame(stepFx); else { fxRun=false; fctx.clearRect(0,0,innerWidth,innerHeight); }
 }
 
+// Когда колесо прокручено, сообщаем боту: он объявит приз в чате (и только после этого)
+let doneSent = false;
+function sendDone(){
+  if(doneSent) return; doneSent = true;
+  if(tg?.sendData && spinId) tg.sendData(JSON.stringify({a:'done', s:parseInt(spinId,10)}));   // окно закроется
+  else tg?.close();
+}
 function showClose(){
-  const c = document.getElementById('close'); c.style.display='block'; c.onclick=()=>tg?.close();
+  const c = document.getElementById('close'); c.textContent='Готово'; c.style.display='block'; c.onclick=sendDone;
 }
 function showResult(key){
   const win = NAMES[key];
@@ -350,7 +357,8 @@ if(result && spinId){
   btn.textContent = 'Крутить';
   if(store.get('spin_'+spinId)==='1'){
     btn.disabled = true;
-    note.textContent = 'Этот прокрут уже использован. Открой колесо в боте заново.';
+    note.textContent = 'Этот прокрут уже использован. Нажми «Готово», и бот объявит результат в чате.';
+    showClose();
   }
   btn.onclick = ()=>{
     if(spinning || btn.disabled) return;
@@ -379,6 +387,7 @@ if(result && spinId){
       if(win) confetti();
       note.textContent = win ? 'Админ скоро свяжется с тобой и отправит подарок.' : '';
       showClose();
+      setTimeout(sendDone, 6500);     // через несколько секунд сам вернёмся в чат, где бот объявит приз
     })(t0);
   };
 
